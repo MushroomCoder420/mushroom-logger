@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Scan & Redirect</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:1rem; background:#0b1020; color:#fff; }
+    .wrap { max-width:700px; margin:0 auto; }
+    #reader { width:100%; max-width:700px; aspect-ratio: 4/3; border-radius:16px; overflow:hidden; background:#000; }
+    .hint { color:#cbd5e1; margin:1rem 0; }
+  </style>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Scan a QR</h1>
+    <p class="hint">Point your camera at a QR code. You'll be redirected automatically.</p>
+    <div id="reader"></div>
+  </div>
+  <script>
+    function start() {
+      const qr = new Html5Qrcode("reader");
+      const config = { fps: 10, qrbox: 250 };
+      const onScanSuccess = (decodedText) => {
+        try {
+          const u = new URL(decodedText);
+          window.location.href = u.toString();
+        } catch (e) {
+          alert("Scanned text is not a URL:\n" + decodedText);
+        }
+      };
+      qr.start({ facingMode: "environment" }, config, onScanSuccess);
+    }
+    start();
+  </script>
+</body>
+</html>

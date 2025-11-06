@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QR Codes for Batches & Species</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:1rem; background:#f8fafc;}
+    h1 { font-size:1.25rem; margin:0 0 1rem; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+    .card { background:#fff; border-radius:16px; padding:12px; box-shadow:0 10px 30px rgba(0,0,0,.08); display:flex; flex-direction:column; align-items:center; }
+    .meta { font-size:.9rem; color:#334155; text-align:center; margin-top:.5rem; }
+    .url { font-size:.7rem; color:#64748b; word-break:break-all; margin-top:.25rem; }
+    .controls { display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap; }
+    input, select, button { padding:8px 10px; border-radius:10px; border:1px solid #cbd5e1; }
+    button { border:0; background:#0ea5e9; color:#fff; font-weight:700; cursor:pointer; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+  <h1>QR Codes (Batch × Species)</h1>
+  <div class="controls">
+    <label>Form Base URL:
+      <input id="base" size="50" placeholder="https://your-domain/form.html" />
+    </label>
+    <button id="render">Render</button>
+  </div>
+  <div id="grid" class="grid"></div>
+
+  <script>
+    let pairs = [];
+    async function loadPairs() {
+      const res = await fetch('species_batches.json');
+      pairs = await res.json();
+    }
+
+    function makeUrl(base, batch, species) {
+      const u = new URL(base);
+      u.searchParams.set('batch', batch);
+      u.searchParams.set('species', species);
+      return u.toString();
+    }
+
+    function render() {
+      const base = document.getElementById('base').value.trim();
+      if (!base) { alert('Enter your deployed form URL'); return; }
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+      pairs.forEach(({Batch, Species}) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const qr = document.createElement('div');
+        const url = makeUrl(base, Batch, Species);
+        new QRCode(qr, { text: url, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.innerHTML = `<strong>Batch:</strong> ${Batch}<br><strong>Species:</strong> ${Species}`;
+        const small = document.createElement('div');
+        small.className = 'url';
+        small.textContent = url;
+        card.appendChild(qr);
+        card.appendChild(meta);
+        card.appendChild(small);
+        grid.appendChild(card);
+      });
+    }
+
+    document.getElementById('render').addEventListener('click', render);
+    loadPairs();
+  </script>
+</body>
+</html>

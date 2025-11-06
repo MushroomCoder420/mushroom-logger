@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mushroom Batch Log</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:1rem; background:#f8fafc; }
+    .card { max-width: 680px; margin: 0 auto; background:#fff; border-radius:16px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.08); }
+    h1 { font-size:1.25rem; margin:0 0 .25rem; }
+    .muted { color:#475569; margin:.25rem 0 1rem; }
+    label { display:block; margin:12px 0 6px; font-weight:600; }
+    input[type="text"], input[type="number"], select, textarea {
+      width:100%; padding:12px; border:1px solid #cbd5e1; border-radius:12px; font-size:1rem; background:#fff;
+    }
+    .row { display:flex; gap:12px; }
+    .row > div { flex:1; }
+    textarea { min-height:100px; resize:vertical; }
+    .actions { display:flex; gap:10px; margin-top:14px; }
+    button { appearance:none; border:0; border-radius:12px; padding:12px 16px; font-size:1rem; font-weight:700; cursor:pointer; }
+    .primary { background:#0ea5e9; color:#fff; }
+    .ghost { background:#e2e8f0; }
+    .ok { color:#166534; background:#dcfce7; padding:10px; border-radius:10px; display:none; margin-top:10px; }
+    .err { color:#991b1b; background:#fee2e2; padding:10px; border-radius:10px; display:none; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Mushroom Batch Log</h1>
+    <p class="muted">Scan a QR to land here with Batch & Species prefilled. Enter details and submit.</p>
+
+    <!-- ✅ The form the script binds to -->
+    <form id="logForm">
+      <div class="row">
+        <div>
+          <label for="batch">Batch</label>
+          <input id="batch" name="batch" type="text" readonly required />
+        </div>
+        <div>
+          <label for="species">Species</label>
+          <input id="species" name="species" type="text" readonly required />
+        </div>
+      </div>
+
+      <label for="action">Action</label>
+      <select id="action" name="action" required>
+        <option value="stage_change">Stage Change</option>
+        <option value="measurement">Measurement</option>
+        <option value="note">Note</option>
+      </select>
+
+      <label for="stage">Current Stage</label>
+      <select id="stage" name="stage">
+        <option value="">-- Select --</option>
+        <option>Inoculation</option>
+        <option>Colonization</option>
+        <option>Fruiting</option>
+        <option>Harvest</option>
+        <option>Storage</option>
+        <option>Discarded</option>
+      </select>
+
+      <label for="weight">Weight (g)</label>
+      <input id="weight" name="weight" type="number" min="0" step="0.01" placeholder="e.g., 250.5" />
+
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" placeholder="Optional details..."></textarea>
+
+      <div class="actions">
+        <button class="primary" type="submit">Submit</button>
+        <button class="ghost" type="button" id="resetBtn">Reset</button>
+      </div>
+
+      <div id="ok" class="ok">Submitted ✓</div>
+      <div id="err" class="err">Submission failed. Please try again.</div>
+    </form>
+  </div>
+
+  <!-- Your existing script (unchanged) -->
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('logForm');
+    if (!form) { console.error('Form not found'); return; }
+
+    const params  = new URLSearchParams(location.search);
+    const batch   = (params.get("batch")   || "").trim();
+    const species = (params.get("species") || "").trim();
+    const bEl = document.getElementById("batch");
+    const sEl = document.getElementById("species");
+    bEl.value = batch;
+    sEl.value = species;
+
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyBFQ0o-3xNQPQR_QNRPQZSz0Vmmu3Dga51ChhBMuDiVwoi2n1QvUoDMiJLSwl_9PM/exec";
+
+    const show = (id, on) => document.getElementById(id).style.display = on ? "block" : "none";
+
+    const actionEl = document.getElementById("action");
+    const stageEl  = document.getElementById("stage");
+    const weightEl = document.getElementById("weight");
+    function applyRules() {
+      const a = actionEl.value;
+      stageEl.required  = (a === "stage_change" || a === "measurement");
+      weightEl.required = (a === "measurement");
+    }
+    applyRules();
+    actionEl.addEventListener("change", applyRules);
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!bEl.value.trim() || !sEl.value.trim()) {
+        alert("This link is missing batch/species. Please use a QR-generated link.");
+        return;
+      }
+      const wRaw = weightEl.value;
+      const wNum = wRaw === "" ? "" : Number(wRaw);
+      if (wRaw !== "" && !Number.isFinite(wNum)) {
+        alert("Weight must be a number.");
+        return;
+      }
+      const payload = {
+        timestamp: new Date().toISOString(),
+        batch:   bEl.value.trim(),
+        species: sEl.value.trim(),
+        action:  actionEl.value,
+        stage:   stageEl.value,
+        weight:  wRaw === "" ? "" : wNum,
+        notes:   document.getElementById("notes").value.trim()
+      };
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true; submitBtn.textContent = "Submitting…";
+      try {
+        const res = await fetch(SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify(payload)
+        });
+        let json = { ok: false };
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) json = await res.json();
+        else { const t = await res.text(); try { json = JSON.parse(t); } catch { json = { ok: res.ok }; } }
+        if (!res.ok || !json.ok) throw new Error(json.error || res.statusText);
+
+        show("ok", true); show("err", false);
+        form.reset(); bEl.value = batch; sEl.value = species; applyRules();
+      } catch (err) {
+        console.error(err);
+        show("ok", false); show("err", true);
+      } finally {
+        submitBtn.disabled = false; submitBtn.textContent = "Submit";
+      }
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      form.reset(); bEl.value = batch; sEl.value = species; applyRules();
+    });
+  });
+  </script>
+</body>
+</html>

@@ -5,30 +5,46 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Mushroom Batch Log</title>
   <style>
+    :root { color-scheme: light dark; }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:1rem; background:#f8fafc; }
-    .card { max-width: 680px; margin: 0 auto; background:#fff; border-radius:16px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.08); }
+    .card { max-width: 700px; margin: 0 auto; background:#fff; border-radius:16px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.08); }
     h1 { font-size:1.25rem; margin:0 0 .25rem; }
     .muted { color:#475569; margin:.25rem 0 1rem; }
     label { display:block; margin:12px 0 6px; font-weight:600; }
     input[type="text"], input[type="number"], select, textarea {
       width:100%; padding:12px; border:1px solid #cbd5e1; border-radius:12px; font-size:1rem; background:#fff;
     }
+    textarea { min-height:100px; resize:vertical; }
     .row { display:flex; gap:12px; }
     .row > div { flex:1; }
-    textarea { min-height:100px; resize:vertical; }
-    .actions { display:flex; gap:10px; margin-top:14px; }
+    .actions { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
     button { appearance:none; border:0; border-radius:12px; padding:12px 16px; font-size:1rem; font-weight:700; cursor:pointer; }
     .primary { background:#0ea5e9; color:#fff; }
     .ghost { background:#e2e8f0; }
     .ok { color:#166534; background:#dcfce7; padding:10px; border-radius:10px; display:none; margin-top:10px; }
     .err { color:#991b1b; background:#fee2e2; padding:10px; border-radius:10px; display:none; margin-top:10px; }
+    .chips { margin-bottom:.5rem; }
+    .pill { display:inline-block; padding:.35rem .6rem; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:.85rem; margin-right:.5rem; }
+    @media (prefers-color-scheme: dark) {
+      body { background:#0b1020; }
+      .card { background:#0e152a; color:#e5e7eb; }
+      input, select, textarea { background:#0b1222; color:#e5e7eb; border-color:#334155; }
+      .ghost { background:#1f2937; color:#e5e7eb; }
+      .muted { color:#94a3b8; }
+      .pill { background:#1f2440; color:#c7d2fe; }
+      .ok { background:#052e18; color:#b6f3c4; }
+      .err { background:#3b0a0a; color:#fecaca; }
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Mushroom Batch Log</h1>
-    <p class="muted">Scan a QR to land here with Batch & Species prefilled. Enter details and submit.</p>
+    <p class="muted">Scan a QR / barcode link to land here with Batch & Species prefilled. Enter details and submit.</p>
 
+    <div class="chips" id="tags"></div>
+
+    <!-- ✅ The form the script binds to -->
     <form id="logForm">
       <div class="row">
         <div>
@@ -59,9 +75,13 @@
         <option>Discarded</option>
       </select>
 
-      <!-- 🔁 Dynamic label switches between pounds and quantity -->
-      <label id="weightLabel" for="weight">Weight (lb)</label>
-      <input id="weight" name="weight" type="number" min="0" step="0.01" placeholder="e.g., 0.55" />
+      <!-- NEW: Quantity (bags) for "Stage Change → Fruiting" -->
+      <label for="quantity">Quantity (bags)</label>
+      <input id="quantity" name="quantity" type="number" min="0" step="1" placeholder="e.g., 10" />
+
+      <!-- Weight for measurements/harvest -->
+      <label for="weight">Weight (lbs or g)</label>
+      <input id="weight" name="weight" type="number" min="0" step="0.01" placeholder="e.g., 250.5" />
 
       <label for="notes">Notes</label>
       <textarea id="notes" name="notes" placeholder="Optional details..."></textarea>
@@ -69,6 +89,7 @@
       <div class="actions">
         <button class="primary" type="submit">Submit</button>
         <button class="ghost" type="button" id="resetBtn">Reset</button>
+        <a class="ghost" href="./scanner.html" style="text-decoration:none; display:inline-block; line-height:2.25rem; padding:0 12px; border-radius:12px;">Scan Again</a>
       </div>
 
       <div id="ok" class="ok">Submitted ✓</div>
@@ -81,78 +102,63 @@
     const form = document.getElementById('logForm');
     if (!form) { console.error('Form not found'); return; }
 
+    // Prefill from URL params
     const params  = new URLSearchParams(location.search);
     const batch   = (params.get("batch")   || "").trim();
     const species = (params.get("species") || "").trim();
+
     const bEl = document.getElementById("batch");
     const sEl = document.getElementById("species");
+    const actionEl = document.getElementById("action");
+    const stageEl  = document.getElementById("stage");
+    const qtyEl    = document.getElementById("quantity");
+    const weightEl = document.getElementById("weight");
+
     bEl.value = batch;
     sEl.value = species;
 
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyBFQ0o-3xNQPQR_QNRPQZSz0Vmmu3Dga51ChhBMuDiVwoi2n1QvUoDMiJLSwl_9PM/exec";
+    // Show chips
+    const tags = document.getElementById("tags");
+    if (batch)   tags.insertAdjacentHTML("beforeend", `<span class="pill">Batch: ${batch}</span>`);
+    if (species) tags.insertAdjacentHTML("beforeend", `<span class="pill">Species: ${species}</span>`);
+
+    // Make fields required only when needed
+    function applyRules() {
+      const a = actionEl.value;
+      const s = stageEl.value;
+      // Require Weight for measurements
+      weightEl.required = (a === "measurement");
+      // Require Quantity when moving to Fruiting
+      qtyEl.required = (a === "stage_change" && s === "Fruiting");
+    }
+    actionEl.addEventListener("change", applyRules);
+    stageEl.addEventListener("change", applyRules);
+    applyRules();
+
+    // 🔗 SET THIS to your Google Apps Script Web App /exec URL
+    const SCRIPT_URL = "AKfycbzi1UvoDZ0U24fKxFIX4SstQmhOzxZhuKx_F_S2Nck5y6DiH0y18rmjnEjHR5XAaIc";
 
     const show = (id, on) => document.getElementById(id).style.display = on ? "block" : "none";
 
-    const actionEl = document.getElementById("action");
-    const stageEl  = document.getElementById("stage");
-    const weightEl = document.getElementById("weight");
-    const weightLabel = document.getElementById("weightLabel");
-
-    // Track current unit for payload ("lb" or "count")
-    let weightUnit = "lb";
-
-    function setAsPounds() {
-      weightLabel.textContent = "Weight (lb)";
-      weightEl.placeholder = "e.g., 0.55";
-      weightEl.step = "0.01";
-      weightEl.min = "0";
-      weightUnit = "lb";
-    }
-
-    function setAsQuantity() {
-      weightLabel.textContent = "Quantity (count)";
-      weightEl.placeholder = "e.g., 12";
-      weightEl.step = "1";
-      weightEl.min = "0";
-      weightUnit = "count";
-    }
-
-    function applyStageUnit() {
-      if (stageEl.value === "Fruiting") setAsQuantity(); else setAsPounds();
-    }
-
-    function applyRules() {
-      const a = actionEl.value;
-      // Required rules unchanged
-      stageEl.required  = (a === "stage_change" || a === "measurement");
-      weightEl.required = (a === "measurement");
-
-      // Unit rules based on stage
-      applyStageUnit();
-    }
-
-    applyRules();
-    actionEl.addEventListener("change", applyRules);
-    stageEl.addEventListener("change", applyRules);
-
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+
       if (!bEl.value.trim() || !sEl.value.trim()) {
-        alert("This link is missing batch/species. Please use a QR-generated link.");
+        alert("This link is missing batch/species. Please use a QR/barcode-generated link.");
         return;
       }
 
+      // Basic numeric validation
+      const qRaw = qtyEl.value;
+      const qNum = qRaw === "" ? 0 : Number(qRaw);
+      if (qRaw !== "" && (!Number.isFinite(qNum) || qNum < 0)) {
+        alert("Quantity must be a non-negative number.");
+        return;
+      }
       const wRaw = weightEl.value;
       const wNum = wRaw === "" ? "" : Number(wRaw);
-
-      // Validation for number
       if (wRaw !== "" && !Number.isFinite(wNum)) {
-        alert(weightUnit === "count" ? "Quantity must be a whole number." : "Weight must be a number.");
-        return;
-      }
-      // Extra integer check when using quantity
-      if (weightUnit === "count" && wRaw !== "" && !Number.isInteger(wNum)) {
-        alert("Quantity must be a whole number.");
+        alert("Weight must be a number.");
         return;
       }
 
@@ -162,27 +168,37 @@
         species: sEl.value.trim(),
         action:  actionEl.value,
         stage:   stageEl.value,
-        weight:  wRaw === "" ? "" : wNum,
-        weight_unit: weightUnit, // << added to clarify lbs vs count
+        quantity: qNum,                  // NEW: used for "Bags moved to fruit"
+        weight:  wRaw === "" ? "" : wNum, // used for Harvest/measurement
         notes:   document.getElementById("notes").value.trim()
       };
 
       const submitBtn = form.querySelector('button[type="submit"]');
       submitBtn.disabled = true; submitBtn.textContent = "Submitting…";
+
       try {
         const res = await fetch(SCRIPT_URL, {
           method: "POST",
-          headers: { "Content-Type": "text/plain" },
+          headers: { "Content-Type": "text/plain" }, // simple request = no preflight
           body: JSON.stringify(payload)
         });
-        let json = { ok: false };
+
+        // Robust JSON parse
+        let json = { ok: res.ok };
         const ct = res.headers.get("content-type") || "";
-        if (ct.includes("application/json")) json = await res.json();
-        else { const t = await res.text(); try { json = JSON.parse(t); } catch { json = { ok: res.ok }; } }
+        if (ct.includes("application/json")) {
+          json = await res.json();
+        } else {
+          const t = await res.text();
+          try { json = JSON.parse(t); } catch {}
+        }
+
         if (!res.ok || !json.ok) throw new Error(json.error || res.statusText);
 
         show("ok", true); show("err", false);
-        form.reset(); bEl.value = batch; sEl.value = species; applyRules();
+        form.reset();
+        // restore prefilled values
+        bEl.value = batch; sEl.value = species; applyRules();
       } catch (err) {
         console.error(err);
         show("ok", false); show("err", true);
@@ -198,3 +214,4 @@
   </script>
 </body>
 </html>
+
